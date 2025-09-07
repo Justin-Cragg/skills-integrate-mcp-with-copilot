@@ -8,8 +8,11 @@ for extracurricular activities at Mergington High School.
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import RedirectResponse
-import os
+from pydantic import BaseModel
 from pathlib import Path
+import os
+
+from src.auth import create_user, authenticate_user, create_access_token
 
 app = FastAPI(title="Mergington High School API",
               description="API for viewing and signing up for extracurricular activities")
@@ -130,3 +133,41 @@ def unregister_from_activity(activity_name: str, email: str):
     # Remove student
     activity["participants"].remove(email)
     return {"message": f"Unregistered {email} from {activity_name}"}
+
+
+# --- Authentication endpoints ---
+
+class RegisterRequest(BaseModel):
+    email: str
+    password: str
+    full_name: str | None = None
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+
+
+@app.post("/auth/register")
+def register(req: RegisterRequest):
+    try:
+        user = create_user(req.email, req.password, req.full_name or "")
+    except Exception as e:
+        # assume uniqueness constraint
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"message": "user created", "email": user["email"]}
+
+
+@app.post("/auth/login", response_model=TokenResponse)
+def login(req: LoginRequest):
+    user = authenticate_user(req.email, req.password)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    access_token = create_access_token(data={"sub": user["email"]})
+    return {"access_token": access_token, "token_type": "bearer"}
